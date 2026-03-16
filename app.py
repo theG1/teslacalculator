@@ -268,29 +268,32 @@ with col_left:
         )
 
     region = st.selectbox("지역", list(REGIONS.keys()))
-    local_default = REGIONS[region][trim_key]
 
-    # 트림·지역 변경 시 슬라이더 자동 리셋
-    if trim_name != st.session_state.prev_trim or region != st.session_state.prev_region:
-        reset_slider("gov",   gov_default)
-        reset_slider("local", local_default)
-        st.session_state.prev_trim   = trim_name
-        st.session_state.prev_region = region
-        st.rerun()
+    # 트림+지역에서 자동 계산 (session_state 미사용 → 항상 정확)
+    gov_auto   = TRIMS[trim_name]["gov"]          # 국비: 트림에서
+    local_auto = REGIONS[region][trim_key]         # 지방비: 트림키+지역에서
 
-    # 현재 트림에 맞는 국비·지방비 표시
-    gov_sub   = slider_with_input("국가 보조금", 0, 500, gov_default,   5, "gov",   "만원")
-    local_sub = slider_with_input("지방 보조금", 0, 400, local_default, 1, "local", "만원")
+    # 보조금 자동 적용 카드
+    sub_c1, sub_c2, sub_c3 = st.columns(3)
+    sub_c1.metric("국가 보조금 (자동)", f"{gov_auto}만원",
+                  f"{trim_name.split()[-1]} 트림 기준")
+    sub_c2.metric("지방 보조금 (자동)", f"{local_auto}만원",
+                  f"{region} 기준")
+    sub_c3.metric("보조금 합계", f"{gov_auto + local_auto}만원",
+                  "국비 + 지방비")
 
-    # 선택된 트림+지역 보조금 요약 뱃지
-    st.markdown(
-        f"<div style='font-size:12px;color:gray;margin-top:4px'>"
-        f"선택 트림 공시 보조금 — "
-        f"국비 <b>{gov_default}만원</b> + 지방비 <b>{local_default}만원</b> = "
-        f"<b style='color:#1D9E75'>{gov_default + local_default}만원</b>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    # 수동 조정 (선택적)
+    manual_override = st.checkbox("보조금 직접 수정 (공시 금액과 다른 경우)", value=False)
+    if manual_override:
+        st.caption("슬라이더 또는 오른쪽 숫자 칸으로 직접 입력하세요.")
+        gov_sub   = slider_with_input("국가 보조금 (수정)", 0, 500, float(gov_auto),   5, "gov_ov",   "만원")
+        local_sub = slider_with_input("지방 보조금 (수정)", 0, 400, float(local_auto), 1, "local_ov", "만원")
+    else:
+        # 수동 override session_state 항상 최신 자동값으로 동기화
+        st.session_state["gov_ov_val"]   = float(gov_auto)
+        st.session_state["local_ov_val"] = float(local_auto)
+        gov_sub   = float(gov_auto)
+        local_sub = float(local_auto)
 
     use_convert   = st.checkbox("내연기관 전환지원금 포함 (2026년 신설)", value=False)
     convert_bonus = 0
