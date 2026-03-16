@@ -340,14 +340,105 @@ with col_left:
     st.subheader("할부 조건")
     st.caption("삼성카드 다이렉트 오토 기준")
 
-    down_pct    = slider_with_input("선수금 비율", 0, 50,  20,  5,   "down",  "%")
+    # 선수금: 만원 직접 입력 ↔ 비율(%) 슬라이더 양방향 연동
+    # session_state 초기화
+    if "down_won_val" not in st.session_state:
+        st.session_state["down_won_val"] = round(net_price * 0.20 / 10_000)  # 기본 20%
+    if "down_val" not in st.session_state:
+        st.session_state["down_val"] = 20.0
+
+    def _on_down_won():
+        """만원 입력 → 비율 갱신"""
+        won = st.session_state["down_won_input"] * 10_000
+        pct = (won / net_price * 100) if net_price > 0 else 0
+        pct = max(0.0, min(50.0, round(pct, 1)))
+        st.session_state["down_val"]      = pct
+        st.session_state["down_slider"]   = pct
+        st.session_state["down_number"]   = pct
+        st.session_state["down_won_val"]  = st.session_state["down_won_input"]
+
+    def _on_down_pct_slider():
+        pct = st.session_state["down_slider"]
+        st.session_state["down_val"]     = pct
+        st.session_state["down_number"]  = pct
+        won_man = round(net_price * pct / 100 / 10_000)
+        st.session_state["down_won_val"] = won_man
+        st.session_state["down_won_input"] = won_man
+
+    def _on_down_pct_number():
+        pct = max(0.0, min(50.0, st.session_state["down_number"]))
+        st.session_state["down_val"]     = pct
+        st.session_state["down_slider"]  = pct
+        won_man = round(net_price * pct / 100 / 10_000)
+        st.session_state["down_won_val"] = won_man
+        st.session_state["down_won_input"] = won_man
+
+    # 만원 입력 칸 (단독 행)
+    max_down_man = round(net_price / 10_000)
+    won_col1, won_col2 = st.columns([3, 2])
+    with won_col1:
+        st.markdown(
+            "<div style='padding-top:6px;font-size:13px'>"
+            "<b>선수금 금액</b> <span style='color:gray'>만원</span></div>",
+            unsafe_allow_html=True,
+        )
+    with won_col2:
+        st.number_input(
+            "선수금 금액",
+            min_value=0,
+            max_value=max_down_man,
+            value=int(st.session_state["down_won_val"]),
+            step=10,
+            key="down_won_input",
+            on_change=_on_down_won,
+            label_visibility="collapsed",
+            help="만원 단위로 선수금을 직접 입력하면 아래 비율이 자동 계산됩니다.",
+        )
+
+    # 비율 슬라이더 + 숫자 입력 (연동)
+    col_lbl, col_sld, col_num = st.columns([2, 5, 2])
+    with col_lbl:
+        st.markdown(
+            "<div style='padding-top:6px;font-size:13px'>"
+            "선수금 비율 <span style='color:gray'>%</span></div>",
+            unsafe_allow_html=True,
+        )
+    with col_sld:
+        st.slider(
+            "선수금 비율",
+            min_value=0.0, max_value=50.0,
+            value=float(st.session_state["down_val"]),
+            step=0.1,
+            key="down_slider",
+            on_change=_on_down_pct_slider,
+            label_visibility="collapsed",
+        )
+    with col_num:
+        st.number_input(
+            "선수금 비율 숫자",
+            min_value=0.0, max_value=50.0,
+            value=float(st.session_state["down_val"]),
+            step=0.1,
+            key="down_number",
+            on_change=_on_down_pct_number,
+            label_visibility="collapsed",
+            format="%.1f",
+        )
+
+    down_pct = float(st.session_state["down_val"])
+    down_amt  = round(net_price * down_pct / 100)
+    principal = net_price - down_amt
+
+    # 선수금 요약 한 줄
+    st.caption(
+        f"선수금: **{fmt_man(down_amt)}** ({down_pct:.1f}%)  |  "
+        f"할부 원금: **{fmt_man(principal)}**"
+    )
+
     annual_rate = slider_with_input("연 할부금리",  0, 12,  2.3, 0.1, "rate",  "%")
 
     months_options = [24, 36, 48, 60]
     months = st.select_slider("할부 기간", options=months_options, value=60)
-
-    down_amt  = round(net_price * down_pct / 100)
-    principal = net_price - down_amt
 
     # ── 월 유지비 ─────────────────────────────────────
     st.subheader("월 유지비")
