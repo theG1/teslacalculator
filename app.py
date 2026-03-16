@@ -25,13 +25,13 @@ TRIMS = {
         "key": "rwd",
         "price": 49_990_000,
         "gov": 170,
-        "spec": "후륜구동 · 505km · 0→100 4.8초",
+        "spec": "후륜구동 ·최고속 201km/h· 주행가능 거리 400km · 제로백 5.9초",
     },
     "Model Y Premium Long Range AWD": {
         "key": "lr",
         "price": 59_990_000,
         "gov": 210,
-        "spec": "사륜구동 · 최고속 201km/h",
+        "spec": "사륜구동 · 최고속 201km/h· 주행가능 거리 505km · 제로백 4.8초",
     },
 }
 
@@ -39,10 +39,10 @@ OPTIONS = {
     "도색": {
         "Stealth Grey (기본 포함)": 0,
         "Pearl White Multi-Coat (+128.6만)": 1_286_000,
-        "Deep Blue Metallic (+128.6만)": 1_286_000,
-        "Glacier Blue (+128.6만)": 1_286_000,
-        "Crimson Red (+128.6만)": 1_286_000,
-        "Quicksilver (+128.6만)": 1_286_000,
+        "Diamond Black (+192.9만)": 1_929_000,        
+        "Glacier Blue (+192.9만)": 1_929_000,
+        "Crimson Red (+275.9만)": 2_759_000,
+        "Quicksilver (+275.9만)": 2_759_000,
     },
     "휠": {
         "19인치 사이클론 (기본 포함)": 0,
