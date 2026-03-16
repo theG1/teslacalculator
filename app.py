@@ -1,8 +1,8 @@
 """
 테슬라 Model Y 할부 구매 시뮬레이터
-- 테슬라 공식 가격 기준 (2026년 3월)
+- 테슬라 공식 가격 (2026년 3월)
 - 보조금: teslacharger.co.kr / 무공해차 통합누리집 실데이터 (2026-03-16)
-- 시군구 단위 보조금 반영 (경기도 주요 시 포함)
+- 트림별(RWD / Long Range) × 시군구별 지방비 완전 개별 반영
 - 취등록비 계산 포함
 - 선수금 액수 ↔ 비율 양방향 연동
 """
@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────────────────────────
-# 상수 데이터
+# 상수
 # ─────────────────────────────────────────────────────────────────
 
 TRIMS = {
@@ -55,41 +55,62 @@ OPTIONS = {
     },
 }
 
-# ── 보조금 실데이터 (출처: teslacharger.co.kr / 무공해차 통합누리집 2026-03-16) ──
-# rwd/lr: Model Y 지방비(만원), bond_pct: 공채매입비율(%)
+# ── 지역별 보조금 실데이터 ─────────────────────────────────────────
+# 출처: teslacharger.co.kr (무공해차 통합누리집) 2026-03-16
+# rwd: Model Y Premium RWD 지방비(만원)
+# lr:  Model Y Premium Long Range AWD 지방비(만원)
+# bond_pct: 공채매입비율(%)
 REGIONS = {
-    # ── 광역시·특별시 ──────────────────────────────────
-    "서울특별시":        {"rwd": 51,  "lr": 63,  "bond_pct": 12.0},
-    "부산광역시":        {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
-    "대구광역시":        {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
-    "인천광역시":        {"rwd": 51,  "lr": 63,  "bond_pct":  5.0},
-    "광주광역시":        {"rwd": 51,  "lr": 63,  "bond_pct":  5.0},
-    "대전광역시":        {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
-    "울산광역시":        {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
-    "세종특별자치시":    {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
-    # ── 경기도 주요 시군 ───────────────────────────────
-    "경기 수원시":       {"rwd": 70,  "lr": 87,  "bond_pct":  9.0},
-    "경기 성남시":       {"rwd": 76,  "lr": 94,  "bond_pct":  9.0},
-    "경기 의정부시":     {"rwd": 62,  "lr": 77,  "bond_pct":  9.0},
-    "경기 안양시":       {"rwd": 72,  "lr": 89,  "bond_pct":  9.0},
-    "경기 부천시":       {"rwd": 51,  "lr": 63,  "bond_pct":  9.0},
-    "경기 광명시":       {"rwd": 119, "lr": 147, "bond_pct":  9.0},
-    "경기 평택시":       {"rwd": 85,  "lr": 105, "bond_pct":  9.0},
-    "경기 동두천시":     {"rwd": 95,  "lr": 117, "bond_pct":  9.0},
-    "경기 안산시":       {"rwd": 68,  "lr": 84,  "bond_pct":  9.0},
-    "경기 고양시":       {"rwd": 68,  "lr": 84,  "bond_pct":  9.0},
-    "경기 과천시":       {"rwd": 85,  "lr": 105, "bond_pct":  9.0},
-    "경기 구리시":       {"rwd": 85,  "lr": 105, "bond_pct":  9.0},
-    "경기 기타 (평균)":  {"rwd": 75,  "lr": 93,  "bond_pct":  9.0},
-    # ── 도 단위 (참고용) ───────────────────────────────
-    "강원특별자치도":    {"rwd": 100, "lr": 120, "bond_pct":  4.0},
-    "충청북도":          {"rwd": 90,  "lr": 108, "bond_pct":  5.0},
-    "충청남도":          {"rwd": 90,  "lr": 108, "bond_pct":  4.0},
-    "전북특별자치도":    {"rwd": 100, "lr": 120, "bond_pct":  5.0},
-    "전라남도":          {"rwd": 120, "lr": 144, "bond_pct":  4.0},
-    "경상북도":          {"rwd": 130, "lr": 156, "bond_pct":  4.0},
-    "경상남도":          {"rwd": 100, "lr": 120, "bond_pct":  4.0},
-    "제주특별자치도":    {"rwd": 180, "lr": 216, "bond_pct":  5.0},
+    # ── 광역시·특별시·세종 ─────────────────────────────────────────
+    "서울특별시":         {"rwd": 51,  "lr": 63,  "bond_pct": 12.0},
+    "부산광역시":         {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
+    "대구광역시":         {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
+    "인천광역시":         {"rwd": 51,  "lr": 63,  "bond_pct":  5.0},
+    "광주광역시":         {"rwd": 51,  "lr": 63,  "bond_pct":  5.0},
+    "대전광역시":         {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
+    "울산광역시":         {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
+    "세종특별자치시":     {"rwd": 51,  "lr": 63,  "bond_pct":  4.0},
+    # ── 경기도 시군 (개별 데이터) ─────────────────────────────────
+    "경기 수원시":        {"rwd": 70,  "lr": 87,  "bond_pct":  9.0},
+    "경기 성남시":        {"rwd": 76,  "lr": 94,  "bond_pct":  9.0},
+    "경기 의정부시":      {"rwd": 62,  "lr": 77,  "bond_pct":  9.0},
+    "경기 안양시":        {"rwd": 72,  "lr": 89,  "bond_pct":  9.0},
+    "경기 부천시":        {"rwd": 51,  "lr": 63,  "bond_pct":  9.0},
+    "경기 광명시":        {"rwd": 119, "lr": 147, "bond_pct":  9.0},
+    "경기 평택시":        {"rwd": 85,  "lr": 105, "bond_pct":  9.0},
+    "경기 동두천시":      {"rwd": 95,  "lr": 117, "bond_pct":  9.0},
+    "경기 안산시":        {"rwd": 68,  "lr": 84,  "bond_pct":  9.0},
+    "경기 고양시":        {"rwd": 68,  "lr": 84,  "bond_pct":  9.0},
+    "경기 과천시":        {"rwd": 85,  "lr": 105, "bond_pct":  9.0},
+    "경기 구리시":        {"rwd": 85,  "lr": 105, "bond_pct":  9.0},
+    "경기 남양주시":      {"rwd": 51,  "lr": 63,  "bond_pct":  9.0},
+    "경기 오산시":        {"rwd": 79,  "lr": 98,  "bond_pct":  9.0},
+    "경기 시흥시":        {"rwd": 68,  "lr": 84,  "bond_pct":  9.0},
+    "경기 군포시":        {"rwd": 82,  "lr": 101, "bond_pct":  9.0},
+    "경기 의왕시":        {"rwd": 85,  "lr": 105, "bond_pct":  9.0},
+    "경기 하남시":        {"rwd": 51,  "lr": 63,  "bond_pct":  9.0},
+    "경기 용인시":        {"rwd": 73,  "lr": 91,  "bond_pct":  9.0},
+    "경기 파주시":        {"rwd": 85,  "lr": 105, "bond_pct":  9.0},
+    "경기 이천시":        {"rwd": 85,  "lr": 105, "bond_pct":  9.0},
+    "경기 안성시":        {"rwd": 102, "lr": 126, "bond_pct":  9.0},
+    "경기 김포시":        {"rwd": 68,  "lr": 84,  "bond_pct":  9.0},
+    "경기 화성시":        {"rwd": 56,  "lr": 70,  "bond_pct":  9.0},
+    "경기 광주시":        {"rwd": 51,  "lr": 63,  "bond_pct":  9.0},
+    "경기 양주시":        {"rwd": 70,  "lr": 87,  "bond_pct":  9.0},
+    "경기 포천시":        {"rwd": 68,  "lr": 84,  "bond_pct":  9.0},
+    "경기 여주시":        {"rwd": 117, "lr": 144, "bond_pct":  9.0},
+    "경기 연천군":        {"rwd": 161, "lr": 199, "bond_pct":  9.0},
+    "경기 가평군":        {"rwd": 113, "lr": 140, "bond_pct":  9.0},
+    "경기 양평군":        {"rwd": 113, "lr": 140, "bond_pct":  9.0},
+    # ── 도 단위 (대표값, 참고용) ──────────────────────────────────
+    "강원특별자치도":     {"rwd": 85,  "lr": 105, "bond_pct":  4.0},
+    "충청북도":           {"rwd": 90,  "lr": 108, "bond_pct":  5.0},
+    "충청남도":           {"rwd": 90,  "lr": 108, "bond_pct":  4.0},
+    "전북특별자치도":     {"rwd": 100, "lr": 120, "bond_pct":  5.0},
+    "전라남도":           {"rwd": 120, "lr": 144, "bond_pct":  4.0},
+    "경상북도":           {"rwd": 130, "lr": 156, "bond_pct":  4.0},
+    "경상남도":           {"rwd": 100, "lr": 120, "bond_pct":  4.0},
+    "제주특별자치도":     {"rwd": 180, "lr": 216, "bond_pct":  5.0},
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -135,10 +156,8 @@ def slider_with_input(label, min_val, max_val, default, step, key, unit="", help
     if sk not in st.session_state:
         st.session_state[sk] = float(default)
 
-    def on_slider():
-        st.session_state[sk] = st.session_state[f"{key}_sl"]
-    def on_number():
-        st.session_state[sk] = max(float(min_val), min(float(max_val), st.session_state[f"{key}_nb"]))
+    def on_sl(): st.session_state[sk] = st.session_state[f"{key}_sl"]
+    def on_nb(): st.session_state[sk] = max(float(min_val), min(float(max_val), st.session_state[f"{key}_nb"]))
 
     c1, c2, c3 = st.columns([2, 5, 2])
     with c1:
@@ -148,14 +167,12 @@ def slider_with_input(label, min_val, max_val, default, step, key, unit="", help
             unsafe_allow_html=True,
         )
     with c2:
-        st.slider(label, float(min_val), float(max_val),
-                  float(st.session_state[sk]), float(step),
-                  key=f"{key}_sl", on_change=on_slider,
+        st.slider(label, float(min_val), float(max_val), float(st.session_state[sk]),
+                  float(step), key=f"{key}_sl", on_change=on_sl,
                   label_visibility="collapsed", help=help)
     with c3:
-        st.number_input(label, float(min_val), float(max_val),
-                        float(st.session_state[sk]), float(step),
-                        key=f"{key}_nb", on_change=on_number,
+        st.number_input(label, float(min_val), float(max_val), float(st.session_state[sk]),
+                        float(step), key=f"{key}_nb", on_change=on_nb,
                         label_visibility="collapsed",
                         format="%.1f" if step < 1 else "%.0f")
     return float(st.session_state[sk])
@@ -170,8 +187,6 @@ def reset_slider(key, value):
 for k, v in [("prev_trim", "Model Y Premium RWD"), ("prev_region", "서울특별시")]:
     if k not in st.session_state:
         st.session_state[k] = v
-
-# 선수금 연동 state
 for k, v in [("dp_man", 0), ("dp_pct", 20.0), ("dp_init", False)]:
     if k not in st.session_state:
         st.session_state[k] = v
@@ -201,13 +216,13 @@ with col_left:
         "트림", list(TRIMS.keys()), label_visibility="collapsed",
         format_func=lambda x: f"{x}  —  {TRIMS[x]['price']//10_000:,}만원  |  {TRIMS[x]['spec']}",
     )
-    trim_key   = TRIMS[trim_name]["key"]
+    trim_key   = TRIMS[trim_name]["key"]   # "rwd" or "lr"
     base_price = TRIMS[trim_name]["price"]
+    gov_default = TRIMS[trim_name]["gov"]
 
     use_custom = st.toggle("출고가 직접 입력", value=False)
     if use_custom:
-        custom_man = st.number_input("출고가 (만원)", 0, 50_000, base_price // 10_000, 10)
-        base_price = custom_man * 10_000
+        base_price = st.number_input("출고가 (만원)", 0, 50_000, base_price // 10_000, 10) * 10_000
 
     # ── 옵션 ──────────────────────────────────────────
     st.subheader("옵션")
@@ -218,63 +233,70 @@ with col_left:
 
     car_price = base_price + opt_total
 
-    # 2026년 국고 보조금 가격 기준 (기후에너지환경부 고시)
-    # 5,300만원 미만        → 100% 지급
-    # 5,300만~8,500만원     → 50% 지급 (공시 보조금이 이미 50% 적용된 금액)
-    # 8,500만원 초과        → 미지급
+    # 2026년 가격 기준 안내
     if car_price >= 85_000_000:
-        st.error(
-            f"출고가 {fmt_man(car_price)}은 **8,500만원 초과** — 국고 보조금 **미지급** 대상입니다."
-        )
+        st.error(f"출고가 {fmt_man(car_price)} — 8,500만원 초과 · 국고 보조금 **미지급**")
     elif car_price >= 53_000_000:
         st.warning(
-            f"출고가 {fmt_man(car_price)}은 5,300만~8,500만원 구간 — "
-            f"국고 보조금 **50% 지급** 대상. (공시 보조금 금액에 이미 반영됨)"
+            f"출고가 {fmt_man(car_price)} — 5,300만~8,500만원 구간 · "
+            f"국고 보조금 **50% 지급** (공시 금액에 반영됨)"
         )
     else:
-        st.success(
-            f"출고가 {fmt_man(car_price)}은 5,300만원 미만 — 국고 보조금 **100% 지급** 대상입니다."
-        )
+        st.success(f"출고가 {fmt_man(car_price)} — 5,300만원 미만 · 국고 보조금 **100% 지급**")
+
     st.info(f"옵션 합계: **+{fmt_man(opt_total)}**  |  출고가 합계: **{fmt_man(car_price)}**")
 
     # ── 보조금 ────────────────────────────────────────
     st.subheader("보조금")
     st.caption("출처: 무공해차 통합누리집 (ev.or.kr) · 2026-03-16 기준")
 
-    with st.expander("지역별 Model Y 보조금 전체 표 (개인 구매 기준)"):
-        g_rwd = TRIMS["Model Y Premium RWD"]["gov"]
-        g_lr  = TRIMS["Model Y Premium Long Range AWD"]["gov"]
+    with st.expander("지역별 Model Y 보조금 전체 표"):
         rows = []
         for rname, rd in REGIONS.items():
             rows.append({
-                "지역": rname,
-                "RWD 지방비": rd["rwd"],
-                "RWD 합계": g_rwd + rd["rwd"],
-                "LR 지방비": rd["lr"],
-                "LR 합계": g_lr + rd["lr"],
+                "지역":           rname,
+                "RWD 지방비(만)": rd["rwd"],
+                "RWD 합계(만)":   TRIMS["Model Y Premium RWD"]["gov"] + rd["rwd"],
+                "LR 지방비(만)":  rd["lr"],
+                "LR 합계(만)":    TRIMS["Model Y Premium Long Range AWD"]["gov"] + rd["lr"],
             })
         df = pd.DataFrame(rows).set_index("지역")
         st.dataframe(df, use_container_width=True)
-        st.caption("단위: 만원 | 도 단위는 시군구별로 다를 수 있습니다. 정확한 금액은 ev.or.kr 확인 필요")
+        st.caption(
+            "단위: 만원 | 국비: RWD 170만 / Long Range 210만 | "
+            "출처: teslacharger.co.kr / 무공해차 통합누리집 2026-03-16"
+        )
 
     region = st.selectbox("지역", list(REGIONS.keys()))
+    local_default = REGIONS[region][trim_key]
 
     # 트림·지역 변경 시 슬라이더 자동 리셋
     if trim_name != st.session_state.prev_trim or region != st.session_state.prev_region:
-        reset_slider("gov",   TRIMS[trim_name]["gov"])
-        reset_slider("local", REGIONS[region][trim_key])
+        reset_slider("gov",   gov_default)
+        reset_slider("local", local_default)
         st.session_state.prev_trim   = trim_name
         st.session_state.prev_region = region
         st.rerun()
 
-    gov_sub   = slider_with_input("국가 보조금", 0, 500, TRIMS[trim_name]["gov"], 5,  "gov",   "만원")
-    local_sub = slider_with_input("지방 보조금", 0, 300, REGIONS[region][trim_key], 1, "local", "만원")
+    # 현재 트림에 맞는 국비·지방비 표시
+    gov_sub   = slider_with_input("국가 보조금", 0, 500, gov_default,   5, "gov",   "만원")
+    local_sub = slider_with_input("지방 보조금", 0, 400, local_default, 1, "local", "만원")
+
+    # 선택된 트림+지역 보조금 요약 뱃지
+    st.markdown(
+        f"<div style='font-size:12px;color:gray;margin-top:4px'>"
+        f"선택 트림 공시 보조금 — "
+        f"국비 <b>{gov_default}만원</b> + 지방비 <b>{local_default}만원</b> = "
+        f"<b style='color:#1D9E75'>{gov_default + local_default}만원</b>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
     use_convert   = st.checkbox("내연기관 전환지원금 포함 (2026년 신설)", value=False)
     convert_bonus = 0
     if use_convert:
         convert_bonus = slider_with_input("전환지원금", 0, 100, 50, 5, "convert", "만원",
-                                          help="지자체마다 다름. 직접 확인 후 입력하세요.")
+                                          help="3년 이상 보유 내연차 폐차·매각 후 전기차 구매 시. 지자체마다 다름.")
 
     total_sub_won = (gov_sub + local_sub + convert_bonus) * 10_000
     net_price     = max(0, car_price - total_sub_won)
@@ -282,7 +304,7 @@ with col_left:
 
     # ── 취등록비 ──────────────────────────────────────
     st.subheader("취등록비")
-    st.caption("전기차 취득세 최대 140만원 감면 (2026.12월까지) · 공채: 지역별 매입비율 × 즉시 할인 매도율")
+    st.caption("전기차 취득세 최대 140만원 감면 (2026.12월까지) · 공채 지역별 매입비율 적용")
 
     bond_pct_default = REGIONS[region]["bond_pct"]
     bond_discount = slider_with_input(
@@ -290,7 +312,6 @@ with col_left:
         5, 15, 10, 1, "bond_discount", "%",
         help="공채를 즉시 은행에 되팔 때 할인율. 보통 8~12%."
     )
-
     tax_data  = calc_acquisition_tax(car_price)
     bond_data = calc_bond(car_price, bond_pct_default, bond_discount)
     misc_reg  = 100_000
@@ -308,77 +329,46 @@ with col_left:
     st.subheader("할부 조건")
     st.caption("삼성카드 다이렉트 오토 기준")
 
-    # 선수금 양방향 연동 ─────────────────────────────
     max_down_man = max(1, round(net_price / 10_000))
-
-    # 최초 진입 시 기본값 20% 세팅
     if not st.session_state["dp_init"]:
         st.session_state["dp_man"] = round(net_price * 0.20 / 10_000)
         st.session_state["dp_pct"] = 20.0
         st.session_state["dp_init"] = True
 
-    # 콜백: 액수 → 비율
     def _on_man():
         v = max(0, min(st.session_state["_dp_man"], max_down_man))
         st.session_state["dp_man"] = v
         st.session_state["dp_pct"] = round(v / max_down_man * 100, 1) if max_down_man else 0.0
-
-    # 콜백: 비율 → 액수
     def _on_pct():
         p = max(0.0, min(100.0, st.session_state["_dp_pct"]))
         st.session_state["dp_pct"] = p
         st.session_state["dp_man"] = round(max_down_man * p / 100)
 
-    # 행1: 선수금 액수
     a1, a2, a3 = st.columns([3, 3, 2])
     with a1:
-        st.markdown(
-            "<div style='padding-top:6px;font-size:13px'>"
-            "<b>선수금 액수</b> <span style='color:gray'>만원</span></div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("<div style='padding-top:6px;font-size:13px'><b>선수금 액수</b> <span style='color:gray'>만원</span></div>", unsafe_allow_html=True)
     with a2:
-        st.number_input(
-            "선수금 액수", min_value=0, max_value=max_down_man,
-            value=int(st.session_state["dp_man"]), step=10,
-            key="_dp_man", on_change=_on_man, label_visibility="collapsed",
-        )
+        st.number_input("선수금 액수", 0, max_down_man, int(st.session_state["dp_man"]), 10,
+                        key="_dp_man", on_change=_on_man, label_visibility="collapsed")
     with a3:
-        st.markdown(
-            f"<div style='padding-top:8px;font-size:12px;color:gray'>"
-            f"최대 {max_down_man:,}만원</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div style='padding-top:8px;font-size:12px;color:gray'>최대 {max_down_man:,}만원</div>", unsafe_allow_html=True)
 
-    # 행2: 선수금 비율
     b1, b2, b3 = st.columns([3, 3, 2])
     with b1:
-        st.markdown(
-            "<div style='padding-top:6px;font-size:13px'>"
-            "<b>선수금 비율</b> <span style='color:gray'>%</span></div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("<div style='padding-top:6px;font-size:13px'><b>선수금 비율</b> <span style='color:gray'>%</span></div>", unsafe_allow_html=True)
     with b2:
-        st.number_input(
-            "선수금 비율", min_value=0.0, max_value=100.0,
-            value=float(st.session_state["dp_pct"]), step=0.1, format="%.1f",
-            key="_dp_pct", on_change=_on_pct, label_visibility="collapsed",
-        )
+        st.number_input("선수금 비율", 0.0, 100.0, float(st.session_state["dp_pct"]), 0.1,
+                        format="%.1f", key="_dp_pct", on_change=_on_pct, label_visibility="collapsed")
     with b3:
         down_amt_preview = int(st.session_state["dp_man"]) * 10_000
-        st.markdown(
-            f"<div style='padding-top:8px;font-size:12px;color:gray'>"
-            f"할부원금 {fmt_man(max(0, net_price - down_amt_preview))}</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div style='padding-top:8px;font-size:12px;color:gray'>할부원금 {fmt_man(max(0, net_price - down_amt_preview))}</div>", unsafe_allow_html=True)
 
     down_amt  = int(st.session_state["dp_man"]) * 10_000
     down_pct  = float(st.session_state["dp_pct"])
     principal = max(0, net_price - down_amt)
 
-    # 이하 할부 조건
     annual_rate = slider_with_input("연 할부금리", 0, 12, 2.3, 0.1, "rate", "%")
-    months = st.select_slider("할부 기간", options=[24, 36, 48, 60], value=60)
+    months      = st.select_slider("할부 기간", options=[24, 36, 48, 60], value=60)
 
     # ── 월 유지비 ─────────────────────────────────────
     st.subheader("월 유지비")
