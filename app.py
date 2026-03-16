@@ -217,8 +217,24 @@ with col_left:
         opt_total += opt_choices[chosen]
 
     car_price = base_price + opt_total
-    if car_price >= 57_000_000:
-        st.warning(f"출고가 {fmt_man(car_price)}은 5,700만원 초과 — Long Range AWD 보조금 미지급 가능성 있음")
+
+    # 2026년 국고 보조금 가격 기준 (기후에너지환경부 고시)
+    # 5,300만원 미만        → 100% 지급
+    # 5,300만~8,500만원     → 50% 지급 (공시 보조금이 이미 50% 적용된 금액)
+    # 8,500만원 초과        → 미지급
+    if car_price >= 85_000_000:
+        st.error(
+            f"출고가 {fmt_man(car_price)}은 **8,500만원 초과** — 국고 보조금 **미지급** 대상입니다."
+        )
+    elif car_price >= 53_000_000:
+        st.warning(
+            f"출고가 {fmt_man(car_price)}은 5,300만~8,500만원 구간 — "
+            f"국고 보조금 **50% 지급** 대상. (공시 보조금 금액에 이미 반영됨)"
+        )
+    else:
+        st.success(
+            f"출고가 {fmt_man(car_price)}은 5,300만원 미만 — 국고 보조금 **100% 지급** 대상입니다."
+        )
     st.info(f"옵션 합계: **+{fmt_man(opt_total)}**  |  출고가 합계: **{fmt_man(car_price)}**")
 
     # ── 보조금 ────────────────────────────────────────
