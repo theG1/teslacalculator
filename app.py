@@ -1,5 +1,14 @@
+"""
+테슬라 Model Y 할부 구매 시뮬레이터
+- 모든 슬라이더에 숫자 직접 입력 칸 병행 제공
+- 테슬라 공식 가격 기준 (2026년 3월)
+- longrange.gg 보조금 기준 (2026-03-14)
+- 17개 광역시도 지방 보조금 + 취등록비 계산 포함
+"""
+
 import streamlit as st
 import math
+import pandas as pd
 
 st.set_page_config(
     page_title="테슬라 모델Y 할부 시뮬레이터",
@@ -7,10 +16,10 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("테슬라 Model Y 할부 구매 시뮬레이터")
-st.caption("테슬라 공식 가격 기준 · longrange.gg 보조금 기준 · 삼성카드 다이렉트 오토")
+# ─────────────────────────────────────────────────────────────────
+# 상수 데이터
+# ─────────────────────────────────────────────────────────────────
 
-# ─── 상수 ──────────────────────────────────────────────────────
 TRIMS = {
     "Model Y Premium RWD": {
         "key": "rwd",
@@ -46,18 +55,33 @@ OPTIONS = {
 }
 
 REGIONS = {
-    "서울특별시":    {"rwd": 51,  "lr": 63},
-    "경기도 (평균)": {"rwd": 65,  "lr": 78},
-    "인천광역시":    {"rwd": 60,  "lr": 72},
-    "부산광역시":    {"rwd": 68,  "lr": 82},
-    "대구광역시":    {"rwd": 70,  "lr": 84},
-    "광주광역시":    {"rwd": 75,  "lr": 90},
-    "기타 지역":     {"rwd": 80,  "lr": 96},
+    "서울특별시":      {"rwd": 51,  "lr": 63,  "bond_pct": 12.0},
+    "부산광역시":      {"rwd": 68,  "lr": 84,  "bond_pct":  4.0},
+    "대구광역시":      {"rwd": 70,  "lr": 84,  "bond_pct":  4.0},
+    "인천광역시":      {"rwd": 60,  "lr": 72,  "bond_pct":  5.0},
+    "광주광역시":      {"rwd": 75,  "lr": 90,  "bond_pct":  5.0},
+    "대전광역시":      {"rwd": 60,  "lr": 72,  "bond_pct":  4.0},
+    "울산광역시":      {"rwd": 70,  "lr": 84,  "bond_pct":  4.0},
+    "세종특별자치시":  {"rwd": 80,  "lr": 96,  "bond_pct":  4.0},
+    "경기도 (평균)":   {"rwd": 65,  "lr": 78,  "bond_pct":  9.0},
+    "강원특별자치도":  {"rwd": 100, "lr": 120, "bond_pct":  4.0},
+    "충청북도":        {"rwd": 90,  "lr": 108, "bond_pct":  5.0},
+    "충청남도":        {"rwd": 90,  "lr": 108, "bond_pct":  4.0},
+    "전북특별자치도":  {"rwd": 100, "lr": 120, "bond_pct":  5.0},
+    "전라남도":        {"rwd": 120, "lr": 144, "bond_pct":  4.0},
+    "경상북도":        {"rwd": 130, "lr": 156, "bond_pct":  4.0},
+    "경상남도":        {"rwd": 100, "lr": 120, "bond_pct":  4.0},
+    "제주특별자치도":  {"rwd": 180, "lr": 216, "bond_pct":  5.0},
 }
 
-def fmt_man(won: float) -> str:
-    v = round(won / 10_000, 1)
-    return f"{v:,.1f}만원"
+# ─────────────────────────────────────────────────────────────────
+# 헬퍼 함수
+# ─────────────────────────────────────────────────────────────────
+
+def fmt_man(won: float, decimal: bool = True) -> str:
+    if decimal:
+        return f"{round(won / 10_000, 1):,.1f}만원"
+    return f"{round(won / 10_000):,}만원"
 
 def calc_monthly(principal: float, months: int, annual_rate: float):
     if principal <= 0 or months <= 0:
@@ -66,25 +90,139 @@ def calc_monthly(principal: float, months: int, annual_rate: float):
         return principal / months, 0.0
     r = annual_rate / 100 / 12
     monthly = principal * r * math.pow(1 + r, months) / (math.pow(1 + r, months) - 1)
-    total_interest = monthly * months - principal
-    return monthly, total_interest
+    return monthly, monthly * months - principal
 
-# ─── session_state 초기화 ──────────────────────────────────────
-for key, default in [
+def calc_acquisition_tax(car_price: float) -> dict:
+    car_value       = car_price / 1.1
+    raw_tax         = car_value * 0.07
+    ev_discount     = min(raw_tax, 1_400_000)
+    acquisition_tax = max(0, raw_tax - ev_discount)
+    edu_tax         = acquisition_tax * 0.2
+    return {
+        "car_value":        car_value,
+        "raw_tax":          raw_tax,
+        "ev_discount":      ev_discount,
+        "acquisition_tax":  acquisition_tax,
+        "edu_tax":          edu_tax,
+        "total":            acquisition_tax + edu_tax,
+    }
+
+def calc_bond(car_price: float, bond_pct: float, instant_discount: float) -> dict:
+    car_value    = car_price / 1.1
+    bond_amount  = car_value * (bond_pct / 100)
+    actual_cost  = bond_amount * (instant_discount / 100)
+    return {"bond_amount": bond_amount, "actual_cost": actual_cost}
+
+
+# ─────────────────────────────────────────────────────────────────
+# slider_with_input: 슬라이더 + 숫자 입력 칸 동기화 위젯
+# ─────────────────────────────────────────────────────────────────
+
+def slider_with_input(
+    label: str,
+    min_val: float,
+    max_val: float,
+    default: float,
+    step: float,
+    key: str,
+    unit: str = "",
+    help: str = None,
+) -> float:
+    """
+    슬라이더와 숫자 입력 칸을 나란히 배치.
+    둘 중 하나를 변경하면 나머지가 자동으로 동기화됩니다.
+    session_state key: '{key}_val'
+    """
+    state_key = f"{key}_val"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = default
+
+    # 슬라이더가 바뀌면 number_input 값 갱신
+    def on_slider():
+        st.session_state[state_key] = st.session_state[f"{key}_slider"]
+
+    # number_input이 바뀌면 slider 값 갱신
+    def on_number():
+        raw = st.session_state[f"{key}_number"]
+        clamped = max(min_val, min(max_val, raw))
+        st.session_state[state_key] = clamped
+
+    col_label, col_slider, col_num = st.columns([2, 5, 2])
+    with col_label:
+        label_text = f"**{label}**"
+        if unit:
+            label_text += f" ({unit})"
+        st.markdown(
+            f"<div style='padding-top:6px;font-size:13px'>{label} "
+            f"<span style='color:gray'>{unit}</span></div>",
+            unsafe_allow_html=True,
+        )
+
+    with col_slider:
+        st.slider(
+            label,
+            min_value=float(min_val),
+            max_value=float(max_val),
+            value=float(st.session_state[state_key]),
+            step=float(step),
+            key=f"{key}_slider",
+            on_change=on_slider,
+            label_visibility="collapsed",
+            help=help,
+        )
+
+    with col_num:
+        st.number_input(
+            label,
+            min_value=float(min_val),
+            max_value=float(max_val),
+            value=float(st.session_state[state_key]),
+            step=float(step),
+            key=f"{key}_number",
+            on_change=on_number,
+            label_visibility="collapsed",
+            format="%.1f" if step < 1 else "%.0f",
+        )
+
+    return float(st.session_state[state_key])
+
+
+def reset_slider(key: str, value: float):
+    """슬라이더+입력칸 값을 외부에서 강제 리셋"""
+    st.session_state[f"{key}_val"] = value
+
+
+# ─────────────────────────────────────────────────────────────────
+# Session State 초기화
+# ─────────────────────────────────────────────────────────────────
+
+for k, v in [
     ("prev_trim",   "Model Y Premium RWD"),
     ("prev_region", "서울특별시"),
-    ("gov_sub",     170),
-    ("local_sub",   51),
 ]:
-    if key not in st.session_state:
-        st.session_state[key] = default
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-# ─── 레이아웃 ──────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+# UI
+# ─────────────────────────────────────────────────────────────────
+
+st.title("테슬라 Model Y 할부 구매 시뮬레이터")
+st.caption("테슬라 공식가격 · longrange.gg 보조금 · 취득세/공채 포함 | 2026년 3월 기준")
+st.markdown(
+    "<span style='font-size:12px;color:gray'>"
+    "슬라이더를 드래그하거나 오른쪽 숫자 칸에 직접 입력하세요.</span>",
+    unsafe_allow_html=True,
+)
+
 col_left, col_right = st.columns([1, 1], gap="large")
 
+# ══════════════════════════════════════════════════════
+# 왼쪽: 입력
+# ══════════════════════════════════════════════════════
 with col_left:
 
-    # ── 트림 선택 ──────────────────────────────────────────────
+    # ── 트림 ──────────────────────────────────────────
     st.subheader("트림 선택")
     trim_name = st.radio(
         "트림",
@@ -94,99 +232,137 @@ with col_left:
             f"{x}  —  {TRIMS[x]['price']//10_000:,}만원  |  {TRIMS[x]['spec']}"
         ),
     )
-    trim_key = TRIMS[trim_name]["key"]
+    trim_key   = TRIMS[trim_name]["key"]
     base_price = TRIMS[trim_name]["price"]
 
     use_custom = st.toggle("출고가 직접 입력", value=False)
     if use_custom:
         custom_man = st.number_input(
             "출고가 (만원)",
-            min_value=0,
-            max_value=50_000,
-            value=base_price // 10_000,
-            step=10,
+            min_value=0, max_value=50_000,
+            value=base_price // 10_000, step=10,
         )
         base_price = custom_man * 10_000
 
-    # ── 옵션 선택 ──────────────────────────────────────────────
+    # ── 옵션 ──────────────────────────────────────────
     st.subheader("옵션")
     opt_total = 0
     for opt_name, opt_choices in OPTIONS.items():
-        chosen = st.selectbox(opt_name, list(opt_choices.keys()))
+        chosen     = st.selectbox(opt_name, list(opt_choices.keys()))
         opt_total += opt_choices[chosen]
 
     car_price = base_price + opt_total
+
+    if car_price >= 57_000_000:
+        st.warning(
+            f"출고가 {fmt_man(car_price)}은 5,700만원을 초과합니다. "
+            "Long Range AWD는 보조금 미지급 가능성이 있습니다."
+        )
     st.info(
         f"옵션 합계: **+{fmt_man(opt_total)}**  |  출고가 합계: **{fmt_man(car_price)}**"
     )
 
-    # ── 보조금 ─────────────────────────────────────────────────
+    # ── 보조금 ────────────────────────────────────────
     st.subheader("보조금")
-    st.caption("longrange.gg · 2026-03-14 기준")
+    st.caption("longrange.gg · 2026-03-14 / 환경부 무공해차 통합누리집")
 
-    with st.expander("트림별 보조금 참고 (서울 개인 기준)"):
-        st.markdown(
-            """
-| 모델 | 국가 보조금 | 지방(서울) | 합계 |
-|------|:-----------:|:---------:|:----:|
-| Model Y Premium RWD | 170만원 | 51만원 | 221만원 |
-| Model Y Premium Long Range | 210만원 | 63만원 | 273만원 |
-"""
+    with st.expander("광역시도별 보조금 참고표 (개인 구매 기준)"):
+        sub_rows = []
+        for rname, rdata in REGIONS.items():
+            g_rwd = TRIMS["Model Y Premium RWD"]["gov"]
+            g_lr  = TRIMS["Model Y Premium Long Range AWD"]["gov"]
+            sub_rows.append({
+                "지역":           rname,
+                "RWD 지방(만)":   rdata["rwd"],
+                "RWD 합계(만)":   g_rwd + rdata["rwd"],
+                "LR 지방(만)":    rdata["lr"],
+                "LR 합계(만)":    g_lr  + rdata["lr"],
+            })
+        st.dataframe(pd.DataFrame(sub_rows).set_index("지역"), use_container_width=True)
+        st.caption(
+            "* 시군구 단위로 금액이 크게 다릅니다. "
+            "정확한 금액은 ev.or.kr 또는 거주 지자체에서 확인하세요."
         )
 
-    region = st.selectbox("지역", list(REGIONS.keys()))
+    region = st.selectbox("지역 (광역시도)", list(REGIONS.keys()))
 
-    # 트림 또는 지역 변경 시 슬라이더 자동 리셋
-    trim_changed = (trim_name != st.session_state.prev_trim)
-    region_changed = (region != st.session_state.prev_region)
-
-    if trim_changed or region_changed:
-        st.session_state.gov_sub = TRIMS[trim_name]["gov"]
-        st.session_state.local_sub = REGIONS[region][trim_key]
-        st.session_state.prev_trim = trim_name
+    # 트림/지역 변경 시 슬라이더 자동 리셋
+    if trim_name != st.session_state.prev_trim or region != st.session_state.prev_region:
+        reset_slider("gov",   TRIMS[trim_name]["gov"])
+        reset_slider("local", REGIONS[region][trim_key])
+        st.session_state.prev_trim   = trim_name
         st.session_state.prev_region = region
         st.rerun()
 
-    gov_sub = st.slider(
-        "국가 보조금 (만원)",
-        min_value=0,
-        max_value=500,
-        step=5,
-        key="gov_sub",
-    )
-    local_sub = st.slider(
-        "지방 보조금 (만원)",
-        min_value=0,
-        max_value=300,
-        step=1,
-        key="local_sub",
-    )
+    gov_sub   = slider_with_input("국가 보조금", 0, 500, TRIMS[trim_name]["gov"], 5,  "gov",   "만원")
+    local_sub = slider_with_input("지방 보조금", 0, 300, REGIONS[region][trim_key], 1, "local", "만원")
 
-    total_sub_won = (gov_sub + local_sub) * 10_000
-    net_price = max(0, car_price - total_sub_won)
+    use_convert   = st.checkbox("내연기관 전환지원금 포함 (2026년 신설, 조건 충족 시)", value=False)
+    convert_bonus = 0
+    if use_convert:
+        convert_bonus = slider_with_input("전환지원금", 0, 100, 50, 5, "convert", "만원",
+                                          help="지자체마다 다름. 직접 확인 후 입력하세요.")
+
+    total_sub_won = (gov_sub + local_sub + convert_bonus) * 10_000
+    net_price     = max(0, car_price - total_sub_won)
     st.success(
-        f"실구매가: **{fmt_man(net_price)}** (보조금 {fmt_man(total_sub_won)} 차감)"
+        f"실구매가: **{fmt_man(net_price)}** (보조금 총 {fmt_man(total_sub_won)} 차감)"
     )
 
-    # ── 할부 조건 ──────────────────────────────────────────────
+    # ── 취등록비 ──────────────────────────────────────
+    st.subheader("취등록비")
+    st.caption(
+        "전기차 취득세 최대 140만원 감면 (2026년 12월까지) · "
+        "공채: 지역별 매입비율 × 즉시 할인 매도율"
+    )
+
+    bond_pct_default = REGIONS[region]["bond_pct"]
+    bond_discount    = slider_with_input(
+        f"공채 즉시 할인 매도율 ({region} 매입비율 {bond_pct_default:.0f}%)",
+        5, 15, 10, 1, "bond_discount", "%",
+        help="공채를 즉시 은행에 되팔 때 할인율. 금리에 따라 보통 8~12%.",
+    )
+
+    tax_data  = calc_acquisition_tax(car_price)
+    bond_data = calc_bond(car_price, bond_pct_default, bond_discount)
+    misc_reg  = 100_000
+    total_reg = tax_data["total"] + bond_data["actual_cost"] + misc_reg
+
+    rc1, rc2 = st.columns(2)
+    rc1.metric("취득세 (감면 후)", fmt_man(tax_data["acquisition_tax"]))
+    rc1.metric("지방교육세",       fmt_man(tax_data["edu_tax"]))
+    rc2.metric(f"공채 실부담 ({bond_pct_default:.0f}%×{bond_discount:.0f}% 할인)",
+               fmt_man(bond_data["actual_cost"]))
+    rc2.metric("번호판·인지대 등", fmt_man(misc_reg))
+    st.info(f"취등록비 합계: **{fmt_man(total_reg)}**")
+
+    # ── 할부 조건 ─────────────────────────────────────
     st.subheader("할부 조건")
     st.caption("삼성카드 다이렉트 오토 기준")
 
-    down_pct = st.slider("선수금 비율 (%)", 0, 50, 20, step=5)
-    months = st.select_slider("할부 기간", options=[24, 36, 48, 60], value=60)
-    annual_rate = st.slider("연 할부금리 (%)", 0.0, 12.0, 2.3, step=0.1)
+    down_pct    = slider_with_input("선수금 비율", 0, 50,  20,  5,   "down",  "%")
+    annual_rate = slider_with_input("연 할부금리",  0, 12,  2.3, 0.1, "rate",  "%")
 
-    down_amt = round(net_price * down_pct / 100)
+    months_options = [24, 36, 48, 60]
+    months = st.select_slider("할부 기간", options=months_options, value=60)
+
+    down_amt  = round(net_price * down_pct / 100)
     principal = net_price - down_amt
 
-    # ── 월 유지비 ──────────────────────────────────────────────
+    # ── 월 유지비 ─────────────────────────────────────
     st.subheader("월 유지비")
-    ins    = st.slider("보험료 (만원/월)", 5, 30, 12, step=1) * 10_000
-    charge = st.slider("충전비 (만원/월)", 2, 15,  7, step=1) * 10_000
-    misc   = st.slider("기타 유지비 (만원/월)", 0, 10, 2, step=1) * 10_000
+    ins_man    = slider_with_input("보험료",     5,  30, 12, 1, "ins",    "만원/월")
+    charge_man = slider_with_input("충전비",     2,  15,  7, 1, "charge", "만원/월")
+    misc_man   = slider_with_input("기타 유지비", 0, 10,  2, 1, "misc",   "만원/월")
+
+    ins    = ins_man    * 10_000
+    charge = charge_man * 10_000
+    misc   = misc_man   * 10_000
 
 
-# ─── 우측: 결과 ────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════
+# 오른쪽: 결과
+# ══════════════════════════════════════════════════════
 with col_right:
     st.subheader("결과 요약")
 
@@ -196,11 +372,17 @@ with col_right:
     monthly_maint     = ins + charge + misc
     grand_total       = monthly_loan + monthly_maint
 
-    # 핵심 지표
-    c1, c2, c3 = st.columns(3)
-    c1.metric("실구매가",  fmt_man(net_price),  f"보조금 -{fmt_man(total_sub_won)}")
-    c2.metric("선수금",    fmt_man(down_amt),   f"{down_pct}%")
-    c3.metric("할부 원금", fmt_man(principal))
+    # 초기 지출
+    st.markdown("#### 초기 지출 (출고 시)")
+    ic1, ic2, ic3 = st.columns(3)
+    ic1.metric("출고가",      fmt_man(car_price))
+    ic2.metric("보조금 차감", f"-{fmt_man(total_sub_won)}")
+    ic3.metric("실구매가",    fmt_man(net_price))
+
+    ic4, ic5, ic6 = st.columns(3)
+    ic4.metric("선수금",           fmt_man(down_amt),    f"{down_pct:.0f}%")
+    ic5.metric("취등록비",         fmt_man(total_reg),   "전기차 감면 적용")
+    ic6.metric("출고 당일 총지출", fmt_man(down_amt + total_reg))
 
     st.divider()
 
@@ -217,11 +399,13 @@ with col_right:
     ]
     for label, value in details:
         a, b = st.columns([2, 1])
-        a.markdown(f"<span style='color:gray'>{label}</span>", unsafe_allow_html=True)
+        a.markdown(
+            f"<span style='color:gray;font-size:14px'>{label}</span>",
+            unsafe_allow_html=True,
+        )
         b.markdown(f"**{value}**")
 
     st.divider()
-
     a, b = st.columns([2, 1])
     a.markdown("### 월 총 비용")
     b.markdown(f"### {fmt_man(grand_total)}")
@@ -239,19 +423,43 @@ with col_right:
     for m in [24, 36, 48, 60]:
         ml, ti = calc_monthly(principal, m, annual_rate)
         rows.append({
-            "기간":    f"{m}개월",
+            "기간":      f"{m}개월",
             "월 할부금": fmt_man(ml),
             "월 총비용": fmt_man(ml + monthly_maint),
-            "총 이자":  fmt_man(ti) if ti > 0 else "없음",
+            "총 이자":   fmt_man(ti) if ti > 0 else "없음",
         })
     st.table(rows)
 
     # 5년 총 보유 비용
     st.markdown("#### 5년 총 보유 비용")
-    total_60 = grand_total * 60 + down_amt
+    total_60 = grand_total * 60 + down_amt + total_reg
     st.info(
-        f"선수금 {fmt_man(down_amt)} + 월 {fmt_man(grand_total)} x 60개월\n\n"
-        f"**총 = {fmt_man(total_60)}** (유지비 포함)"
+        f"출고 당일: {fmt_man(down_amt + total_reg)}  \n"
+        f"월 {fmt_man(grand_total)} × 60개월  \n\n"
+        f"**5년 합계: {fmt_man(total_60)}** (유지비·취등록비 포함)"
     )
 
-    st.caption("본 시뮬레이터는 참고용이며 실제 조건은 테슬라·삼성카드에서 확인하세요.")
+    # 취등록비 상세
+    with st.expander("취등록비 계산 상세 보기"):
+        st.markdown(
+            f"""
+| 항목 | 금액 | 비고 |
+|------|------|------|
+| 차량가액 (부가세 제외) | {fmt_man(tax_data['car_value'])} | 출고가 ÷ 1.1 |
+| 취득세 (7%) | {fmt_man(tax_data['raw_tax'])} | 차량가액 × 7% |
+| 전기차 감면 | -{fmt_man(tax_data['ev_discount'])} | 최대 140만원 (2026.12월까지) |
+| **실 취득세** | **{fmt_man(tax_data['acquisition_tax'])}** | |
+| 지방교육세 | {fmt_man(tax_data['edu_tax'])} | 취득세 × 20% |
+| 공채매입액 | {fmt_man(bond_data['bond_amount'])} | 차량가액 × {bond_pct_default:.0f}% |
+| 공채 즉시 매도 실부담 | {fmt_man(bond_data['actual_cost'])} | 할인율 {bond_discount:.0f}% 적용 |
+| 번호판·인지대 등 | {fmt_man(misc_reg)} | 추정값 |
+| **취등록비 합계** | **{fmt_man(total_reg)}** | |
+"""
+        )
+        st.caption(
+            "취득세: 지방세특례제한법 제66조 | "
+            "공채매입비율: 지역별 조례 | "
+            "실제 납부액은 등록 시 확인하세요."
+        )
+
+    st.caption("본 시뮬레이터는 참고용입니다. 실제 조건은 테슬라·삼성카드·지자체에서 확인하세요.")
